@@ -31,7 +31,7 @@ temp/
 *.jpg
 *.jpeg
 *.png
-db.json
+database/*.json
 
 # Windows Python cache
 __pycache__/

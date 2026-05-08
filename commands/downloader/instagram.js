@@ -3,7 +3,11 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const YTDLP_PATH = "D:\\project\\botTele\\yt-dlp.exe";
+const YTDLP_PATH =
+  os.platform() === "win32"
+    ? path.join(process.cwd(), "bin", "yt-dlp.exe")
+    : path.join(process.cwd(), "bin", "yt-dlp");
+
 const MAX_SIZE = 50 * 1024 * 1024;
 
 function runYtDlp(args) {

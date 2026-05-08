@@ -5,15 +5,14 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "postinstall": "node scripts/setupYtdlp.js",
     "dev": "nodemon index.js"
   },
   "dependencies": {
-    "@distube/ytdl-core": "^4.16.12",
     "axios": "^1.16.0",
     "dotenv": "^16.0.0",
     "fluent-ffmpeg": "^2.1.3",
-    "node-telegram-bot-api": "^0.64.0",
-    "ytdl-core": "^4.11.5"
+    "node-telegram-bot-api": "^0.64.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
