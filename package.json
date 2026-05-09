@@ -4,8 +4,8 @@
   "description": "Telegram bot modular dengan Node.js",
   "main": "index.js",
   "scripts": {
+    "postinstall": "node scripts/setupYtdlp.js && node scripts/setupffmpeg.js",
     "start": "node index.js",
-    "postinstall": "node scripts/setupYtdlp.js",
     "dev": "nodemon index.js"
   },
   "dependencies": {
