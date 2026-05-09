@@ -30,6 +30,7 @@ Thumbs.db
 bin/yt-dlp.exe
 bin/ffmpeg.exe
 bin/ffprobe.exe
+bin/ffplay.exe
 
 # extracted ffmpeg folder (opsional)
 bin/ffmpeg-*/
