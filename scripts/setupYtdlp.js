@@ -1,85 +1,76 @@
+const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-const axios = require("axios");
-const unzipper = require("unzipper");
+const os = require("os");
 
-const BIN_DIR = path.join(process.cwd(), "bin");
+const isWindows = os.platform() === "win32";
+const isMac = os.platform() === "darwin";
+const isLinux = os.platform() === "linux";
 
-if (!fs.existsSync(BIN_DIR)) {
-  fs.mkdirSync(BIN_DIR);
-}
+console.log(`🔍 Checking yt-dlp (${os.platform()})...\n`);
 
-// =========================
-// DOWNLOAD FUNCTION (FIX 302)
-// =========================
-async function download(url, dest) {
-  const writer = fs.createWriteStream(dest);
-
-  const response = await axios({
-    method: "GET",
-    url,
-    responseType: "stream",
-    maxRedirects: 10,
-  });
-
-  return new Promise((resolve, reject) => {
-    response.data.pipe(writer);
-
-    writer.on("finish", resolve);
-    writer.on("error", reject);
-  });
-}
-
-// =========================
-// SETUP
-// =========================
-async function setup() {
-  console.log("📦 Setup bot downloader dimulai...");
+// Windows: cek di project root atau PATH
+if (isWindows) {
+  const projectYtdlp = path.join(__dirname, "..", "bin", "yt-dlp.exe");
+  if (fs.existsSync(projectYtdlp)) {
+    console.log("✅ yt-dlp.exe sudah ada di folder bin/");
+    process.exit(0);
+  }
 
   try {
-    // =========================
-    // YT-DLP
-    // =========================
-    console.log("⬇ Download yt-dlp...");
-    await download(
-      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-      path.join(BIN_DIR, "yt-dlp.exe"),
+    const result = execSync("yt-dlp --version", { encoding: "utf-8" });
+    console.log("✅ yt-dlp sudah terinstall:", result.trim());
+    process.exit(0);
+  } catch {
+    console.log("⚠️  yt-dlp tidak ditemukan di Windows\n");
+    console.log("📥 Install dengan salah satu cara:\n");
+    console.log("   1. via winget:");
+    console.log("      winget install yt-dlp\n");
+    console.log("   2. Download manual:");
+    console.log(
+      "      https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
     );
-
-    // =========================
-    // FFMPEG ZIP
-    // =========================
-    console.log("⬇ Download ffmpeg...");
-
-    const ffmpegUrl =
-      "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
-
-    const zipPath = path.join(BIN_DIR, "ffmpeg.zip");
-
-    await download(ffmpegUrl, zipPath);
-
-    console.log("📦 Extracting ffmpeg...");
-
-    await fs
-      .createReadStream(zipPath)
-      .pipe(unzipper.Extract({ path: BIN_DIR }))
-      .promise();
-
-    fs.unlinkSync(zipPath);
-
-    console.log("✅ FFmpeg berhasil di-extract");
-
-    console.log("\n🎉 SETUP SELESAI");
-    console.log("📁 Folder bin:");
-    console.log(BIN_DIR);
-
-    console.log("\n⚠ Pastikan file ini ada:");
-    console.log("- yt-dlp.exe");
-    console.log("- ffmpeg.exe");
-    console.log("- ffprobe.exe");
-  } catch (err) {
-    console.error("❌ Setup gagal:", err.message);
+    console.log(
+      "      Taruh di folder: " + path.join(__dirname, "..", "bin") + "\n",
+    );
+    process.exit(0);
   }
 }
 
-setup();
+// Linux/Mac: install via package manager
+if (isLinux || isMac) {
+  try {
+    const result = execSync("yt-dlp --version", { encoding: "utf-8" });
+    console.log("✅ yt-dlp sudah terinstall:", result.trim());
+    process.exit(0);
+  } catch {
+    console.log("❌ yt-dlp tidak ditemukan, sedang menginstall...\n");
+  }
+
+  try {
+    if (isLinux) {
+      // Try apt (Debian/Ubuntu)
+      try {
+        console.log("📥 Trying apt...");
+        execSync("sudo apt-get update && sudo apt-get install -y yt-dlp", {
+          stdio: "inherit",
+        });
+      } catch {
+        // Try pip
+        console.log("📥 Trying pip...");
+        execSync("pip install yt-dlp --break-system-packages", {
+          stdio: "inherit",
+        });
+      }
+    } else if (isMac) {
+      // Try brew
+      console.log("📥 Trying homebrew...");
+      execSync("brew install yt-dlp", { stdio: "inherit" });
+    }
+    console.log("\n✅ yt-dlp berhasil diinstall!");
+  } catch {
+    console.log("❌ Instalasi gagal");
+    console.log("🔗 Install manual: pip install yt-dlp");
+    process.exit(1);
+  }
+}

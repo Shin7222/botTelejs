@@ -31,6 +31,7 @@ bin/yt-dlp.exe
 bin/ffmpeg.exe
 bin/ffprobe.exe
 bin/ffplay.exe
+bin/
 
 # extracted ffmpeg folder (opsional)
 bin/ffmpeg-*/
