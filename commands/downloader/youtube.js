@@ -1,41 +1,31 @@
-const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { getInfo, downloadVideo, downloadAudio } = require("../../utils/ytdlp");
 
-const YTDLP_PATH =
-  os.platform() === "win32"
-    ? path.join(process.cwd(), "bin", "yt-dlp.exe")
-    : path.join(process.cwd(), "bin", "yt-dlp");
-
-const MAX_SIZE = 50 * 1024 * 1024; // 50MB
-const MAX_DURATION = 600; // 10 menit
-
-function runYtDlp(args) {
-  return new Promise((resolve, reject) => {
-    execFile(YTDLP_PATH, args, (error, stdout, stderr) => {
-      if (error) return reject(stderr || error.message);
-      resolve(stdout);
-    });
-  });
-}
+const MAX_SIZE = Number(process.env.MAX_FILE_SIZE || 50 * 1024 * 1024);
+const MAX_DURATION = Number(process.env.MAX_DURATION || 600);
 
 module.exports = {
   name: "yt",
   alias: ["youtube", "ytmp3", "ytmp4"],
   category: "public",
-  description: "Download YouTube video/audio (yt-dlp.exe)",
+  description: "Download YouTube video/audio",
   usage: "/yt <url> | /ytmp3 <url>",
   useLimit: true,
 
   async run({ bot, chatId, msg, fullArgs }) {
-    const url = fullArgs ? fullArgs.trim() : "";
+    const url = fullArgs?.trim();
 
     if (!url) {
       return bot.sendMessage(
         chatId,
-        "❌ Masukkan URL YouTube!\nContoh: /yt https://youtube.com/watch?v=xxxx",
+        "❌ Masukkan URL YouTube!\n\nContoh:\n/yt https://youtu.be/xxxx\n/ytmp3 https://youtu.be/xxxx",
       );
+    }
+
+    if (!url.includes("youtube.com") && !url.includes("youtu.be")) {
+      return bot.sendMessage(chatId, "❌ URL harus dari YouTube!");
     }
 
     const command = msg.text.split(" ")[0].replace("/", "").toLowerCase();
@@ -46,22 +36,21 @@ module.exports = {
       "⏳ Mengambil info video...",
     );
 
-    let tmpFile;
+    const ext = isAudio ? "mp3" : "mp4";
+    const tmpFile = path.join(os.tmpdir(), `yt_${Date.now()}.${ext}`);
 
     try {
-      // 1. Ambil metadata video (JSON)
-      const infoRaw = await runYtDlp([url, "--dump-json", "--no-playlist"]);
+      const info = await getInfo(url);
 
-      const info = JSON.parse(infoRaw);
+      const title = (info.title || "YouTube Video")
+        .replace(/[<>:"/\\|?*]/g, "")
+        .trim();
 
-      const title = (info.title || "video").replace(/[<>:"/\\|?*]/g, "").trim();
+      const duration = Number(info.duration || 0);
 
-      const duration = info.duration || 0;
-
-      // 2. validasi durasi
       if (duration > MAX_DURATION) {
         return bot.editMessageText(
-          `❌ Durasi terlalu panjang: ${Math.floor(duration / 60)} menit\nMaksimal 10 menit.`,
+          `❌ Durasi terlalu panjang (${Math.floor(duration / 60)} menit)\nMaksimal 10 menit.`,
           {
             chat_id: chatId,
             message_id: statusMsg.message_id,
@@ -69,29 +58,28 @@ module.exports = {
         );
       }
 
-      await bot.editMessageText(`⬇️ Downloading: ${title.slice(0, 50)}...`, {
+      await bot.editMessageText(`⬇️ Mendownload:\n${title.slice(0, 60)}...`, {
         chat_id: chatId,
         message_id: statusMsg.message_id,
       });
 
-      // 3. file temp
-      tmpFile = path.join(
-        os.tmpdir(),
-        `yt_${Date.now()}.${isAudio ? "mp3" : "mp4"}`,
-      );
+      if (isAudio) {
+        await downloadAudio(url, tmpFile);
+      } else {
+        await downloadVideo(url, tmpFile);
+      }
 
-      // 4. download video/audio
-      const format = isAudio ? "bestaudio/best" : "best[ext=mp4]/best";
+      if (!fs.existsSync(tmpFile)) {
+        throw new Error("File gagal dibuat");
+      }
 
-      await runYtDlp([url, "-f", format, "-o", tmpFile, "--no-playlist"]);
-
-      // 5. cek file size
       const size = fs.statSync(tmpFile).size;
 
       if (size > MAX_SIZE) {
         fs.unlinkSync(tmpFile);
+
         return bot.editMessageText(
-          `❌ File terlalu besar: ${(size / 1024 / 1024).toFixed(1)}MB`,
+          `❌ File terlalu besar (${(size / 1024 / 1024).toFixed(1)}MB)\nMaksimal 50MB.`,
           {
             chat_id: chatId,
             message_id: statusMsg.message_id,
@@ -99,14 +87,14 @@ module.exports = {
         );
       }
 
-      await bot.editMessageText("📤 Mengirim file ke Telegram...", {
+      await bot.editMessageText("📤 Mengirim file...", {
         chat_id: chatId,
         message_id: statusMsg.message_id,
       });
 
-      // 6. kirim ke telegram
       if (isAudio) {
         await bot.sendAudio(chatId, tmpFile, {
+          title,
           caption: `🎵 ${title}`,
         });
       } else {
@@ -115,22 +103,25 @@ module.exports = {
         });
       }
 
-      // 7. cleanup
-      fs.unlinkSync(tmpFile);
       await bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
     } catch (err) {
       console.error("YT ERROR:", err);
 
-      if (tmpFile && fs.existsSync(tmpFile)) {
-        fs.unlinkSync(tmpFile);
-      }
-
       await bot
-        .editMessageText(`❌ Error: ${String(err).slice(0, 120)}`, {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-        })
+        .editMessageText(
+          `❌ Gagal download\n${String(err.message).slice(0, 150)}`,
+          {
+            chat_id: chatId,
+            message_id: statusMsg.message_id,
+          },
+        )
         .catch(() => {});
+    } finally {
+      if (fs.existsSync(tmpFile)) {
+        try {
+          fs.unlinkSync(tmpFile);
+        } catch {}
+      }
     }
   },
 };

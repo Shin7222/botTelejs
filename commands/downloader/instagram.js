@@ -1,41 +1,27 @@
-const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { getInfo, downloadVideo } = require("../../utils/ytdlp");
 
-const YTDLP_PATH =
-  os.platform() === "win32"
-    ? path.join(process.cwd(), "bin", "yt-dlp.exe")
-    : path.join(process.cwd(), "bin", "yt-dlp");
-
-const MAX_SIZE = 50 * 1024 * 1024;
-
-function runYtDlp(args) {
-  return new Promise((resolve, reject) => {
-    execFile(YTDLP_PATH, args, (err, stdout, stderr) => {
-      if (err) return reject(stderr || err.message);
-      resolve(stdout);
-    });
-  });
-}
+const MAX_SIZE = Number(process.env.MAX_FILE_SIZE || 50 * 1024 * 1024);
 
 module.exports = {
   name: "ig",
   alias: ["instagram", "reels"],
   category: "public",
-  description: "Download Instagram Reels/Post (yt-dlp)",
+  description: "Download Instagram Post / Reels",
   usage: "/ig <url>",
   useLimit: true,
 
   async run({ bot, chatId, fullArgs }) {
-    if (!fullArgs) {
+    const url = fullArgs?.trim();
+
+    if (!url) {
       return bot.sendMessage(
         chatId,
-        "❌ Masukkan URL Instagram!\nContoh: /ig https://www.instagram.com/reel/xxxx",
+        "❌ Masukkan URL Instagram!\n\nContoh:\n/ig https://www.instagram.com/reel/xxxx",
       );
     }
-
-    const url = fullArgs.trim();
 
     if (!url.includes("instagram.com")) {
       return bot.sendMessage(chatId, "❌ URL harus dari Instagram!");
@@ -49,31 +35,26 @@ module.exports = {
     const tmpFile = path.join(os.tmpdir(), `ig_${Date.now()}.mp4`);
 
     try {
-      // 1. ambil title (optional)
-      let title = "Instagram Content";
-      try {
-        title = await runYtDlp([url, "--print", "%(title)s"]);
-      } catch {}
+      const info = await getInfo(url);
 
-      await bot.editMessageText(`⬇️ Downloading: ${title.slice(0, 60)}...`, {
+      const title = (info.title || "Instagram Video")
+        .replace(/[<>:"/\\|?*]/g, "")
+        .trim();
+
+      await bot.editMessageText(`⬇️ Mendownload:\n${title.slice(0, 60)}...`, {
         chat_id: chatId,
         message_id: statusMsg.message_id,
       });
 
-      // 2. download
-      await runYtDlp([url, "-f", "best", "-o", tmpFile]);
+      await downloadVideo(url, tmpFile);
 
-      if (!fs.existsSync(tmpFile)) {
-        throw new Error("File tidak berhasil dibuat");
-      }
-
-      // 3. size check
       const size = fs.statSync(tmpFile).size;
 
       if (size > MAX_SIZE) {
         fs.unlinkSync(tmpFile);
+
         return bot.editMessageText(
-          `❌ File terlalu besar: ${(size / 1024 / 1024).toFixed(1)}MB`,
+          `❌ File terlalu besar (${(size / 1024 / 1024).toFixed(1)}MB)`,
           {
             chat_id: chatId,
             message_id: statusMsg.message_id,
@@ -81,32 +62,22 @@ module.exports = {
         );
       }
 
-      await bot.editMessageText("📤 Mengirim file...", {
-        chat_id: chatId,
-        message_id: statusMsg.message_id,
-      });
-
-      // 4. send video
       await bot.sendVideo(chatId, tmpFile, {
-        caption: `📸 Instagram\n\n${title}`,
+        caption: `📸 ${title}`,
       });
 
-      // 5. cleanup
       await bot.deleteMessage(chatId, statusMsg.message_id).catch(() => {});
-      fs.unlinkSync(tmpFile);
     } catch (err) {
       console.error("IG ERROR:", err);
 
-      await bot
-        .editMessageText(
-          `❌ Gagal download:\n${String(err.message).slice(0, 150)}`,
-          {
-            chat_id: chatId,
-            message_id: statusMsg.message_id,
-          },
-        )
-        .catch(() => {});
-
+      await bot.editMessageText(
+        `❌ Gagal download\n${String(err.message).slice(0, 150)}`,
+        {
+          chat_id: chatId,
+          message_id: statusMsg.message_id,
+        },
+      );
+    } finally {
       if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
     }
   },

@@ -1,93 +1,85 @@
-const https = require("https");
 const fs = require("fs");
 const path = require("path");
-const os = require("os");
+const axios = require("axios");
+const unzipper = require("unzipper");
 
 const BIN_DIR = path.join(process.cwd(), "bin");
 
 if (!fs.existsSync(BIN_DIR)) {
-  fs.mkdirSync(BIN_DIR, { recursive: true });
+  fs.mkdirSync(BIN_DIR);
 }
 
-function getBinaryInfo() {
-  const platform = os.platform();
+// =========================
+// DOWNLOAD FUNCTION (FIX 302)
+// =========================
+async function download(url, dest) {
+  const writer = fs.createWriteStream(dest);
 
-  if (platform === "win32") {
-    return {
-      url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-      file: "yt-dlp.exe",
-    };
-  }
+  const response = await axios({
+    method: "GET",
+    url,
+    responseType: "stream",
+    maxRedirects: 10,
+  });
 
-  if (platform === "linux") {
-    return {
-      url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
-      file: "yt-dlp",
-    };
-  }
-
-  if (platform === "darwin") {
-    return {
-      url: "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos",
-      file: "yt-dlp",
-    };
-  }
-
-  throw new Error(`OS tidak didukung: ${platform}`);
-}
-
-function download(url, dest) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(dest);
+    response.data.pipe(writer);
 
-    https
-      .get(url, (res) => {
-        if (
-          res.statusCode >= 300 &&
-          res.statusCode < 400 &&
-          res.headers.location
-        ) {
-          file.close();
-          fs.unlinkSync(dest);
-          return download(res.headers.location, dest)
-            .then(resolve)
-            .catch(reject);
-        }
-
-        if (res.statusCode !== 200) {
-          return reject(new Error(`HTTP ${res.statusCode}`));
-        }
-
-        res.pipe(file);
-
-        file.on("finish", () => {
-          file.close(resolve);
-        });
-      })
-      .on("error", reject);
+    writer.on("finish", resolve);
+    writer.on("error", reject);
   });
 }
 
-(async () => {
+// =========================
+// SETUP
+// =========================
+async function setup() {
+  console.log("📦 Setup bot downloader dimulai...");
+
   try {
-    const { url, file } = getBinaryInfo();
-    const out = path.join(BIN_DIR, file);
+    // =========================
+    // YT-DLP
+    // =========================
+    console.log("⬇ Download yt-dlp...");
+    await download(
+      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
+      path.join(BIN_DIR, "yt-dlp.exe"),
+    );
 
-    if (fs.existsSync(out)) {
-      console.log("✓ yt-dlp already exists");
-      process.exit(0);
-    }
+    // =========================
+    // FFMPEG ZIP
+    // =========================
+    console.log("⬇ Download ffmpeg...");
 
-    console.log("Downloading yt-dlp...");
-    await download(url, out);
+    const ffmpegUrl =
+      "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
 
-    if (os.platform() !== "win32") {
-      fs.chmodSync(out, 0o755);
-    }
+    const zipPath = path.join(BIN_DIR, "ffmpeg.zip");
 
-    console.log("✓ yt-dlp installed:", out);
+    await download(ffmpegUrl, zipPath);
+
+    console.log("📦 Extracting ffmpeg...");
+
+    await fs
+      .createReadStream(zipPath)
+      .pipe(unzipper.Extract({ path: BIN_DIR }))
+      .promise();
+
+    fs.unlinkSync(zipPath);
+
+    console.log("✅ FFmpeg berhasil di-extract");
+
+    console.log("\n🎉 SETUP SELESAI");
+    console.log("📁 Folder bin:");
+    console.log(BIN_DIR);
+
+    console.log("\n⚠ Pastikan file ini ada:");
+    console.log("- yt-dlp.exe");
+    console.log("- ffmpeg.exe");
+    console.log("- ffprobe.exe");
   } catch (err) {
-    console.error("Failed install yt-dlp:", err.message);
-    process.exit(1);
+    console.error("❌ Setup gagal:", err.message);
   }
-})();
+}
+
+setup();
