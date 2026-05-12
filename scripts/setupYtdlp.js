@@ -1,76 +1,69 @@
-const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const axios = require("axios");
 
+const BIN_DIR = path.join(process.cwd(), "bin");
 const isWindows = os.platform() === "win32";
-const isMac = os.platform() === "darwin";
 const isLinux = os.platform() === "linux";
+const isMac = os.platform() === "darwin";
 
-console.log(`🔍 Checking yt-dlp (${os.platform()})...\n`);
+const YTDLP_PATH = isWindows
+  ? path.join(BIN_DIR, "yt-dlp.exe")
+  : path.join(BIN_DIR, "yt-dlp");
 
-// Windows: cek di project root atau PATH
-if (isWindows) {
-  const projectYtdlp = path.join(__dirname, "..", "bin", "yt-dlp.exe");
-  if (fs.existsSync(projectYtdlp)) {
-    console.log("✅ yt-dlp.exe sudah ada di folder bin/");
-    process.exit(0);
-  }
+console.log("🔍 Checking yt-dlp...\n");
 
-  try {
-    const result = execSync("yt-dlp --version", { encoding: "utf-8" });
-    console.log("✅ yt-dlp sudah terinstall:", result.trim());
-    process.exit(0);
-  } catch {
-    console.log("⚠️  yt-dlp tidak ditemukan di Windows\n");
-    console.log("📥 Install dengan salah satu cara:\n");
-    console.log("   1. via winget:");
-    console.log("      winget install yt-dlp\n");
-    console.log("   2. Download manual:");
-    console.log(
-      "      https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe",
-    );
-    console.log(
-      "      Taruh di folder: " + path.join(__dirname, "..", "bin") + "\n",
-    );
-    process.exit(0);
-  }
+// Cek di bin folder
+if (fs.existsSync(YTDLP_PATH)) {
+  console.log(`✅ yt-dlp found: ${YTDLP_PATH}`);
+  process.exit(0);
 }
 
-// Linux/Mac: install via package manager
-if (isLinux || isMac) {
-  try {
-    const result = execSync("yt-dlp --version", { encoding: "utf-8" });
-    console.log("✅ yt-dlp sudah terinstall:", result.trim());
-    process.exit(0);
-  } catch {
-    console.log("❌ yt-dlp tidak ditemukan, sedang menginstall...\n");
-  }
+console.log("❌ yt-dlp not found, downloading...\n");
 
+(async () => {
   try {
-    if (isLinux) {
-      // Try apt (Debian/Ubuntu)
-      try {
-        console.log("📥 Trying apt...");
-        execSync("sudo apt-get update && sudo apt-get install -y yt-dlp", {
-          stdio: "inherit",
-        });
-      } catch {
-        // Try pip
-        console.log("📥 Trying pip...");
-        execSync("pip install yt-dlp --break-system-packages", {
-          stdio: "inherit",
-        });
-      }
-    } else if (isMac) {
-      // Try brew
-      console.log("📥 Trying homebrew...");
-      execSync("brew install yt-dlp", { stdio: "inherit" });
+    // Buat bin folder
+    if (!fs.existsSync(BIN_DIR)) {
+      fs.mkdirSync(BIN_DIR, { recursive: true });
     }
-    console.log("\n✅ yt-dlp berhasil diinstall!");
-  } catch {
-    console.log("❌ Instalasi gagal");
-    console.log("🔗 Install manual: pip install yt-dlp");
+
+    // Tentukan URL berdasarkan OS
+    let downloadUrl;
+    if (isWindows) {
+      downloadUrl =
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+    } else if (isLinux) {
+      downloadUrl =
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux";
+    } else if (isMac) {
+      downloadUrl =
+        "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos";
+    }
+
+    console.log(`📥 Platform: ${os.platform()}`);
+    console.log(`📥 Downloading from: ${downloadUrl}`);
+
+    const response = await axios.get(downloadUrl, {
+      responseType: "arraybuffer",
+      timeout: 60000,
+    });
+
+    fs.writeFileSync(YTDLP_PATH, response.data);
+
+    // Make executable (Linux/Mac)
+    if (!isWindows) {
+      fs.chmodSync(YTDLP_PATH, 0o755);
+    }
+
+    console.log(`✅ yt-dlp downloaded: ${YTDLP_PATH}`);
+    console.log(`📝 Size: ${(response.data.length / 1024 / 1024).toFixed(2)} MB\n`);
+  } catch (err) {
+    console.error("❌ Failed to download yt-dlp:", err.message);
+    console.log("\n📋 Manual download:");
+    console.log("   https://github.com/yt-dlp/yt-dlp/releases/latest");
+    console.log(`   Save as: ${YTDLP_PATH}\n`);
     process.exit(1);
   }
-}
+})();
