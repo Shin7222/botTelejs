@@ -1,7 +1,7 @@
 const { execFile } = require("child_process");
 const path = require("path");
-const os = require("os");
 const fs = require("fs");
+const os = require("os");
 
 const BIN_DIR = path.join(process.cwd(), "bin");
 
@@ -11,13 +11,17 @@ const YTDLP_PATH =
     : path.join(BIN_DIR, "yt-dlp");
 
 if (!fs.existsSync(YTDLP_PATH)) {
-  throw new Error(`yt-dlp tidak ditemukan: ${YTDLP_PATH}`);
+  throw new Error(
+    `yt-dlp tidak ditemukan:\n${YTDLP_PATH}\nPastikan file ada di folder bin/`,
+  );
 }
 
 const BASE_FLAGS = [
   "--no-playlist",
   "--no-check-certificate",
   "--no-check-formats",
+  "--ignore-errors",
+  "--no-warnings",
 
   // retry
   "--extractor-retries",
@@ -32,31 +36,24 @@ const BASE_FLAGS = [
   "--socket-timeout",
   "30",
 
-  // anti rate limit
+  // anti spam request
   "--sleep-requests",
   "1",
-
-  // force ipv4
-  "-4",
-
-  // ffmpeg
-  "--ffmpeg-location",
-  BIN_DIR,
 
   // cache
   "--cache-dir",
   path.join(process.cwd(), "cache"),
 
-  // IMPORTANT
-  // multi client fallback tanpa cookies
+  // ffmpeg lokal
+  "--ffmpeg-location",
+  BIN_DIR,
+
+  // youtube fallback clients
   "--extractor-args",
-  "youtube:player_client=android,web,ios",
+  "youtube:player_client=android,web_creator,web",
 
-  // user agent
-  "--user-agent",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-
-  "--no-warnings",
+  // paksa ipv4
+  "-4",
 ];
 
 function runYtDlp(args = []) {
@@ -86,6 +83,20 @@ async function getInfo(url) {
   return JSON.parse(raw);
 }
 
+async function findDownloadedFile(outputTemplate) {
+  const dir = path.dirname(outputTemplate);
+
+  const base = path.basename(outputTemplate).split(".")[0];
+
+  const files = fs.readdirSync(dir).filter((f) => f.startsWith(base));
+
+  if (!files.length) {
+    throw new Error("File gagal dibuat");
+  }
+
+  return path.join(dir, files[0]);
+}
+
 async function downloadVideo(url, output) {
   const formats = ["bv*+ba/b", "bestvideo+bestaudio/best", "best"];
 
@@ -93,16 +104,25 @@ async function downloadVideo(url, output) {
 
   for (const format of formats) {
     try {
-      console.log(`📥 Trying format: ${format}`);
+      await runYtDlp([
+        "-f",
+        format,
 
-      await runYtDlp(["-f", format, "-o", output, url]);
+        "--merge-output-format",
+        "mp4",
 
-      console.log("✅ Download berhasil");
+        "--remux-video",
+        "mp4",
 
-      return true;
+        "-o",
+        output,
+        url,
+      ]);
+
+      return await findDownloadedFile(output);
     } catch (err) {
       lastError = err;
-      console.log(`⚠️ Format gagal: ${format}`);
+      console.log("Format gagal:", format);
     }
   }
 
@@ -110,8 +130,9 @@ async function downloadVideo(url, output) {
 }
 
 async function downloadAudio(url, output) {
-  return runYtDlp([
+  await runYtDlp([
     "-x",
+
     "--audio-format",
     "mp3",
 
@@ -120,12 +141,14 @@ async function downloadAudio(url, output) {
 
     "-o",
     output,
-
     url,
   ]);
+
+  return await findDownloadedFile(output);
 }
 
 module.exports = {
+  BIN_DIR,
   runYtDlp,
   getInfo,
   downloadVideo,

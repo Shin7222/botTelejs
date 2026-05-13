@@ -1,69 +1,101 @@
-const { getUser } = require("../../database/db");
-const { isOwner } = require("../../middleware/guards");
-
-function pad(str, len) {
-  const s = String(str);
-  return s + " ".repeat(Math.max(0, len - s.length));
-}
-
 module.exports = {
   name: "info",
-  alias: ["profil", "whoami", "status"],
+  alias: ["profile", "me"],
   category: "public",
-  description: "Tampilkan profil dan status akun",
+  description: "Lihat profil & status akun kamu",
+  usage: "/info",
 
   async run({ bot, chatId, msg }) {
-    const user = getUser(chatId);
-    const tg = msg.from;
+    const db = require("../../database/db");
+    const user = db.getUser(msg.from.id);
+    const isOwner = process.env.OWNER_ID === msg.from.id.toString();
 
-    const owner = isOwner(chatId);
-    const role = user.isPremium ? "💎 Premium" : "🔓 Free";
-    const banned = user.isBanned ? "🚫 Ya" : "✅ Tidak";
-    const remaining = user.limit - user.usageToday;
-    const limit =
-      user.isPremium || owner
-        ? "∞ Unlimited"
-        : `${remaining}/${user.limit} (terpakai ${user.usageToday})`;
-    const nama = `${tg.first_name}${tg.last_name ? " " + tg.last_name : ""}`;
-    const uname = tg.username ? `@${tg.username}` : "—";
-    const joined = new Date(user.joinedAt).toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "long",
-      year: "numeric",
-    });
+    // Format data
+    const name =
+      msg.from.first_name +
+      (msg.from.last_name ? " " + msg.from.last_name : "");
+    const username = msg.from.username ? `@${msg.from.username}` : "—";
+    const userId = msg.from.id;
+    const chatId_ = msg.chat.id;
 
-    const W = 28;
-    const line = "─".repeat(W + 14);
-    const top = `┌${line}┐`;
-    const mid = `├${line}┤`;
-    const end = `└${line}┘`;
-    const row = (label, value) => `│  ${pad(label, 12)}  ${pad(value, W)}│`;
+    // Role
+    let role = "🔓 Free";
+    let roleEmoji = "🔓";
+    if (isOwner) {
+      role = "👑 Owner";
+      roleEmoji = "👑";
+    } else if (user?.isPremium) {
+      role = "💎 Premium";
+      roleEmoji = "💎";
+    }
 
-    const statusRows = [
-      row("Role", role),
-      ...(owner ? [row("Owner", "👑 Ya")] : []),
-      row("Banned", banned),
-      row("Limit", limit),
-      row("Bergabung", joined),
-    ];
+    // Status
+    let statusText = "✅ Aktif";
+    if (user?.isBanned) {
+      statusText = "⛔ Dibanned";
+    }
 
-    const card = [
-      top,
-      `│${pad("  👤  PROFIL AKUN", W + 15)}│`,
-      mid,
-      row("Nama", nama),
-      row("Username", uname),
-      row("User ID", String(tg.id)),
-      row("Chat ID", String(chatId)),
-      mid,
-      `│${pad("  📊  STATUS", W + 15)}│`,
-      mid,
-      ...statusRows,
-      end,
-    ].join("\n");
+    // Limit
+    const totalLimit = user?.limit || 10;
+    const usageToday = user?.usageToday || 0;
+    const remaining = Math.max(0, totalLimit - usageToday);
+    const percentage = Math.round((usageToday / totalLimit) * 100);
+    const progressBar = this.createProgressBar(percentage);
 
-    await bot.sendMessage(chatId, `\`\`\`\n${card}\n\`\`\``, {
+    // Joined date
+    const joinedDate = user?.joinedAt
+      ? new Date(user.joinedAt).toLocaleDateString("id-ID", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        })
+      : "—";
+
+    // Box drawing
+    const top = "┌─────────────────────────────────────┐";
+    const mid = "├─────────────────────────────────────┤";
+    const bot_ = "└─────────────────────────────────────┘";
+
+    let infoText = "";
+    infoText += `${top}\n`;
+    infoText += `│ 👤 *PROFIL AKUN*\n`;
+    infoText += `${mid}\n`;
+    infoText += `│ Nama: ${name.substring(0, 28)}\n`;
+    infoText += `│ Username: ${username}\n`;
+    infoText += `│ User ID: ${userId}\n`;
+    infoText += `│ Chat ID: ${chatId_}\n`;
+    infoText += `${mid}\n`;
+    infoText += `│ ${roleEmoji} Role: ${role}\n`;
+    infoText += `│ ${statusText}\n`;
+    infoText += `${mid}\n`;
+    infoText += `│ 📊 *DAILY LIMIT*\n`;
+    infoText += `│ ${progressBar} ${percentage}%\n`;
+    infoText += `│ Penggunaan: ${usageToday}/${totalLimit}\n`;
+
+    if (totalLimit === 999999) {
+      infoText += `│ Status: ∞ Unlimited\n`;
+    } else {
+      infoText += `│ Sisa: ${remaining} command\n`;
+    }
+
+    infoText += `${mid}\n`;
+    infoText += `│ 📅 Bergabung: ${joinedDate}\n`;
+    infoText += `${bot_}`;
+
+    await bot.sendMessage(chatId, infoText, {
       parse_mode: "Markdown",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "← Kembali ke Menu", callback_data: "back_to_start" }],
+        ],
+      },
     });
+  },
+
+  createProgressBar(percentage) {
+    const filled = Math.round(percentage / 10);
+    const empty = 10 - filled;
+    const bar = "█".repeat(filled) + "░".repeat(empty);
+    return `[${bar}]`;
   },
 };

@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+
 const { getInfo, downloadVideo } = require("../../utils/ytdlp");
 
 const MAX_SIZE = Number(process.env.MAX_FILE_SIZE || 50 * 1024 * 1024);
@@ -34,6 +35,8 @@ module.exports = {
 
     const tmpFile = path.join(os.tmpdir(), `ig_${Date.now()}.mp4`);
 
+    let finalFile;
+
     try {
       const info = await getInfo(url);
 
@@ -46,12 +49,17 @@ module.exports = {
         message_id: statusMsg.message_id,
       });
 
-      await downloadVideo(url, tmpFile);
+      // downloadVideo sekarang return final path
+      finalFile = await downloadVideo(url, tmpFile);
 
-      const size = fs.statSync(tmpFile).size;
+      if (!fs.existsSync(finalFile)) {
+        throw new Error("File gagal dibuat");
+      }
+
+      const size = fs.statSync(finalFile).size;
 
       if (size > MAX_SIZE) {
-        fs.unlinkSync(tmpFile);
+        fs.unlinkSync(finalFile);
 
         return bot.editMessageText(
           `❌ File terlalu besar (${(size / 1024 / 1024).toFixed(1)}MB)`,
@@ -62,7 +70,12 @@ module.exports = {
         );
       }
 
-      await bot.sendVideo(chatId, tmpFile, {
+      await bot.editMessageText("📤 Mengirim video...", {
+        chat_id: chatId,
+        message_id: statusMsg.message_id,
+      });
+
+      await bot.sendVideo(chatId, finalFile, {
         caption: `📸 ${title}`,
       });
 
@@ -70,15 +83,21 @@ module.exports = {
     } catch (err) {
       console.error("IG ERROR:", err);
 
-      await bot.editMessageText(
-        `❌ Gagal download\n${String(err.message).slice(0, 150)}`,
-        {
-          chat_id: chatId,
-          message_id: statusMsg.message_id,
-        },
-      );
+      await bot
+        .editMessageText(
+          `❌ Gagal download\n${String(err.message).slice(0, 150)}`,
+          {
+            chat_id: chatId,
+            message_id: statusMsg.message_id,
+          },
+        )
+        .catch(() => {});
     } finally {
-      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      if (finalFile && fs.existsSync(finalFile)) {
+        try {
+          fs.unlinkSync(finalFile);
+        } catch {}
+      }
     }
   },
 };
